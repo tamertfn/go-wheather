@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  weather-service:
+    build: 
+      context: ./weather-service
+      dockerfile: Dockerfile
+    container_name: weather_service
+    working_dir: /go/src/weather-system/weather-service
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    depends_on:
+      - rabbitmq
+    networks:
+      - weather-network
+    restart: unless-stopped
+
+  history-service:
+    build: 
+      context: ./history-service
+      dockerfile: Dockerfile
+    container_name: history_service
+    working_dir: /go/src/weather-system/history-service
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - weather-network
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: weather_rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: weather_user
+      RABBITMQ_DEFAULT_PASS: weather123
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - weather-network
+
+  postgres:
+    image: postgres:latest
+    container_name: weather_postgres
+    environment:
+      POSTGRES_USER: weather_user
+      POSTGRES_PASSWORD: weather123
+      POSTGRES_DB: weather_history
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./history-service/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weather_user -d weather_history"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - weather-network
+
+networks:
+  weather-network:
+    driver: bridge
+
+volumes:
+  postgres_data: 
